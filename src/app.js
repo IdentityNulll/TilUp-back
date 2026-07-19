@@ -6,7 +6,7 @@ import { env, isProduction } from './config/env.js';
 
 const app = express();
 
-const allowedOrigins = new Set([env.clientOrigin, 'http://localhost:5173']);
+const allowedOrigins = new Set([env.clientOrigin, 'http://localhost:5173', "https://til-up.netlify.app/"]);
 
 app.use(
   cors({
