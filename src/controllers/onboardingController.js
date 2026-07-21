@@ -1,29 +1,23 @@
 import User from '../models/User.js';
 import Roadmap from '../models/Roadmap.js';
-import { isValidLevel } from '../constants/levels.js';
-import { publicPlacementQuestions } from '../data/placementTest.js';
-import { scorePlacement, buildRoadmap } from '../services/onboardingService.js';
+import { LEVELS, isValidLevel, levelIndex } from '../constants/levels.js';
 
-const TIMEFRAMES = ['1_oy', '3_oy', '6_oy', '12_oy'];
-
-export const getPlacementTest = async (req, res) => {
-  res.status(200).json({ questions: publicPlacementQuestions() });
-};
+const TIMEFRAMES = ['1_oy', '2_oy', '3_oy'];
 
 export const completeOnboarding = async (req, res) => {
-  const { targetLevel, timeframe, placementAnswers } = req.body;
+  const { targetLevel, timeframe } = req.body;
 
   if (!isValidLevel(targetLevel)) {
     res.status(400);
-    throw new Error("Maqsadli daraja noto'g'ri");
+    throw new Error("Maqsadli daraja notoʻgʻri");
   }
   if (!TIMEFRAMES.includes(timeframe)) {
     res.status(400);
-    throw new Error("Tayyorgarlik muddati noto'g'ri");
+    throw new Error("Tayyorgarlik muddati notoʻgʻri");
   }
 
-  const placement = scorePlacement(placementAnswers || {});
-  const { levelPath, startingLevel } = buildRoadmap(placement.startingLevel, targetLevel);
+  // Grades from the lowest up to the chosen target — kept for record/badges.
+  const levelPath = LEVELS.slice(0, levelIndex(targetLevel) + 1);
 
   const roadmap = await Roadmap.findOneAndUpdate(
     { user: req.user._id },
@@ -36,21 +30,12 @@ export const completeOnboarding = async (req, res) => {
     {
       targetLevel,
       timeframe,
-      currentLevel: startingLevel,
+      currentLevel: targetLevel,
       onboardingCompleted: true,
       roadmap: roadmap._id,
     },
     { new: true }
   );
 
-  res.status(200).json({
-    user,
-    roadmap,
-    placement: {
-      startingLevel,
-      correct: placement.correct,
-      total: placement.total,
-      score: placement.score,
-    },
-  });
+  res.status(200).json({ user, roadmap });
 };

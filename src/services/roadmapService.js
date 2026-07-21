@@ -1,78 +1,88 @@
-import { LEVELS, levelIndex, LEVEL_META } from '../constants/levels.js';
+import { CURRICULUM } from '../data/curriculum.js';
 
-const LESSONS_PER_LEVEL = 4;
-
-// Grammar/skill topics (Uzbek) used to label lesson nodes until real lessons
-// are authored and seeded. Deterministic by level + index so the roadmap is
-// stable across requests.
-const TOPIC_POOL = [
-  'Zamonlar',
-  'Artikllar',
-  'Modal feʼllar',
-  'Shart gaplar',
-  'Predloglar',
-  'Gap tuzilishi',
-  'Soʻz boyligi',
-  'Passiv nisbat',
-  'Bogʻlovchilar',
-  'Frazaviy feʼllar',
-  'Sifat darajalari',
-  'Bilvosita nutq',
-];
-
-const nodeStatus = (levelStatus, indexInLevel) => {
-  if (levelStatus === 'completed') return 'completed';
-  if (levelStatus === 'locked') return 'locked';
-  // current level: first node is the active one, the rest are locked.
-  return indexInLevel === 0 ? 'current' : 'locked';
+// How often extra practice quizzes are inserted between lessons, by timeframe.
+// Module checkpoint quizzes are ALWAYS added at the end of each module; these
+// rules only add EXTRA in-module quizzes so longer plans get more frequent
+// testing (the 3-month plan quizzes after nearly every lesson).
+const quizAfterLesson = (lessonIdx, lessonCount, timeframe) => {
+  if (lessonIdx === lessonCount - 1) return false; // last lesson → module checkpoint covers it
+  switch (timeframe) {
+    case '3_oy':
+      return true; // after every lesson — most frequent
+    case '2_oy':
+      return lessonIdx % 2 === 1; // after every 2nd lesson
+    case '1_oy':
+    default:
+      return false; // checkpoints only — fewest
+  }
 };
 
 /**
- * Assembles the learner's roadmap view: their ordered level path with lesson +
- * checkpoint nodes, each marked completed / current / locked based on where
- * their currentLevel sits within the path.
+ * Builds the learner's roadmap from the fixed Uzbek curriculum. The same 13
+ * modules / 24 lessons are taught in every timeframe; only the number of quiz
+ * nodes changes. Node status (completed/current/locked) is derived from how
+ * many nodes the learner has finished — a fresh user has the first node current
+ * and the rest locked.
  */
-export const buildRoadmapView = (user, roadmap) => {
-  const levelPath =
-    roadmap?.levelPath?.length > 0
-      ? roadmap.levelPath
-      : LEVELS.slice(0, levelIndex(user.currentLevel || 'C') + 1);
+export const buildRoadmapView = (user, roadmap, completedNodeIds = new Set()) => {
+  const timeframe = user.timeframe || '2_oy';
 
-  const currentLevelIdx = Math.max(0, levelPath.indexOf(user.currentLevel || levelPath[0]));
+  let currentAssigned = false;
+  const assignStatus = (node) => {
+    if (completedNodeIds.has(node.id)) {
+      node.status = 'completed';
+    } else if (!currentAssigned) {
+      node.status = 'current';
+      currentAssigned = true;
+    } else {
+      node.status = 'locked';
+    }
+    return node;
+  };
 
-  const levels = levelPath.map((code, i) => {
-    const status = i < currentLevelIdx ? 'completed' : i === currentLevelIdx ? 'current' : 'locked';
+  let quizCount = 0;
+  let lessonCount = 0;
 
-    const lessons = Array.from({ length: LESSONS_PER_LEVEL }).map((_, j) => ({
-      id: `${code}-l${j + 1}`,
-      order: j + 1,
-      type: 'lesson',
-      title: TOPIC_POOL[(i * LESSONS_PER_LEVEL + j) % TOPIC_POOL.length],
-      status: nodeStatus(status, j),
-    }));
+  const modules = CURRICULUM.map((mod, mi) => {
+    const nodes = [];
 
-    lessons.push({
-      id: `${code}-cp`,
-      order: LESSONS_PER_LEVEL + 1,
-      type: 'checkpoint',
-      title: 'Daraja imtihoni',
-      status: status === 'completed' ? 'completed' : 'locked',
+    mod.lessons.forEach((title, li) => {
+      lessonCount += 1;
+      nodes.push(
+        assignStatus({ id: `${mod.code}-l${li + 1}`, type: 'lesson', title })
+      );
+
+      if (quizAfterLesson(li, mod.lessons.length, timeframe)) {
+        quizCount += 1;
+        nodes.push(
+          assignStatus({ id: `${mod.code}-q${li + 1}`, type: 'quiz', title: 'Mashq testi' })
+        );
+      }
     });
 
+    // Module checkpoint exam — always present.
+    quizCount += 1;
+    nodes.push(assignStatus({ id: `${mod.code}-cp`, type: 'checkpoint', title: 'Nazorat testi' }));
+
+    const completed = nodes.every((n) => n.status === 'completed');
+    const hasCurrent = nodes.some((n) => n.status === 'current');
+
     return {
-      code,
-      title: LEVEL_META[code]?.title || code,
-      hint: LEVEL_META[code]?.hint,
-      status,
-      lessons,
+      code: mod.code,
+      title: mod.title,
+      order: mi + 1,
+      status: completed ? 'completed' : hasCurrent ? 'current' : 'locked',
+      nodes,
     };
   });
 
   return {
-    levels,
-    target: user.targetLevel || levelPath[levelPath.length - 1],
+    modules,
+    target: user.targetLevel || 'A+',
+    timeframe,
+    totals: { modules: modules.length, lessons: lessonCount, quizzes: quizCount },
     stats: {
-      currentLevel: user.currentLevel || levelPath[0],
+      currentLevel: user.currentLevel || user.targetLevel || 'C',
       xp: user.xp,
       streak: user.streakCount,
       hearts: user.hearts,

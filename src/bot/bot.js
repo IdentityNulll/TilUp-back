@@ -33,8 +33,9 @@ export const startBot = () => {
   bot
     .launch({ dropPendingUpdates: true })
     .catch((err) => {
-      console.error('Bot polling error:', err.message);
-      process.exit(1);
+      // A polling failure (e.g. 409 when another instance — like the deployed
+      // Railway server — already owns the bot token) must NOT take down the API.
+      console.warn(`Bot polling disabled: ${err.message}`);
     });
 
   // Polling started (launch doesn't return until it stops)
