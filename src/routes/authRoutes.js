@@ -1,9 +1,11 @@
 import { Router } from 'express';
-import { loginWithTelegram } from '../controllers/authController.js';
+import { register, login, googleLogin } from '../controllers/authController.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = Router();
 
-router.post('/telegram', asyncHandler(loginWithTelegram));
+router.post('/register', asyncHandler(register));
+router.post('/login', asyncHandler(login));
+router.post('/google', asyncHandler(googleLogin));
 
 export default router;
