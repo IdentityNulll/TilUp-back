@@ -2,10 +2,10 @@ import mongoose from 'mongoose';
 
 const moduleSchema = new mongoose.Schema(
   {
-    level: { type: mongoose.Schema.Types.ObjectId, ref: 'Level', required: true },
+    course: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
     title: { type: String, required: true },
-    order: { type: Number, required: true },
-    description: { type: String },
+    order: { type: Number, default: 0 },
+    description: { type: String, default: '' },
   },
   { timestamps: true }
 );

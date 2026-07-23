@@ -14,21 +14,15 @@ const userSchema = new mongoose.Schema(
     name: { type: String, trim: true },
     avatarUrl: { type: String, default: null },
 
-    // Learning profile.
-    targetLevel: {
-      type: String,
-      enum: ['C', 'C+', 'B', 'B+', 'A', 'A+'],
-      default: null,
-    },
-    timeframe: { type: String, default: null },
-    currentLevel: {
-      type: String,
-      enum: ['C', 'C+', 'B', 'B+', 'A', 'A+'],
-      default: null,
-    },
-    onboardingCompleted: { type: Boolean, default: false },
+    // Access control.
+    role: { type: String, enum: ['student', 'teacher', 'admin'], default: 'student' },
 
-    // Gamification.
+    // Onboarding: seen the tour + took (or skipped) the short placement test.
+    onboardingCompleted: { type: Boolean, default: false },
+    placementScore: { type: Number, default: null },
+    placementSkipped: { type: Boolean, default: false },
+
+    // Gamification (global across courses).
     xp: { type: Number, default: 0 },
     streakCount: { type: Number, default: 0 },
     lastActivityDate: { type: Date, default: null },
@@ -36,8 +30,6 @@ const userSchema = new mongoose.Schema(
     maxHearts: { type: Number, default: 5 },
     dailyGoalXp: { type: Number, default: 50 },
     dailyXp: { type: Number, default: 0 },
-
-    roadmap: { type: mongoose.Schema.Types.ObjectId, ref: 'Roadmap', default: null },
   },
   { timestamps: true }
 );

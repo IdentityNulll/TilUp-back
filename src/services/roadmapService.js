@@ -1,74 +1,54 @@
-import { CURRICULUM } from '../data/curriculum.js';
-
-// How often extra practice quizzes are inserted between lessons, by timeframe.
-// Module checkpoint quizzes are ALWAYS added at the end of each module; these
-// rules only add EXTRA in-module quizzes so longer plans get more frequent
-// testing (the 3-month plan quizzes after nearly every lesson).
-const quizAfterLesson = (lessonIdx, lessonCount, timeframe) => {
-  if (lessonIdx === lessonCount - 1) return false; // last lesson → module checkpoint covers it
-  switch (timeframe) {
-    case '3_oy':
-      return true; // after every lesson — most frequent
-    case '2_oy':
-      return lessonIdx % 2 === 1; // after every 2nd lesson
-    case '1_oy':
-    default:
-      return false; // checkpoints only — fewest
-  }
-};
+import Module from '../models/Module.js';
+import Lesson from '../models/Lesson.js';
 
 /**
- * Builds the learner's roadmap from the fixed Uzbek curriculum. The same 13
- * modules / 24 lessons are taught in every timeframe; only the number of quiz
- * nodes changes. Node status (completed/current/locked) is derived from how
- * many nodes the learner has finished — a fresh user has the first node current
- * and the rest locked.
+ * Builds a course's roadmap: its modules (ordered) each with their lesson nodes
+ * (ordered) plus a checkpoint node, and node status derived from the learner's
+ * completed set. The first not-completed node is "current", the rest "locked".
  */
-export const buildRoadmapView = (user, roadmap, completedNodeIds = new Set()) => {
-  const timeframe = user.timeframe || '2_oy';
+export const buildCourseRoadmap = async (course, completedIds = []) => {
+  const done = new Set(completedIds);
+  const modules = await Module.find({ course: course._id }).sort({ order: 1, createdAt: 1 }).lean();
+  const moduleIds = modules.map((m) => m._id);
+  const lessons = await Lesson.find({ module: { $in: moduleIds } })
+    .sort({ order: 1, createdAt: 1 })
+    .lean();
+
+  const lessonsByModule = new Map();
+  for (const l of lessons) {
+    const key = String(l.module);
+    if (!lessonsByModule.has(key)) lessonsByModule.set(key, []);
+    lessonsByModule.get(key).push(l);
+  }
 
   let currentAssigned = false;
-  const assignStatus = (node) => {
-    if (completedNodeIds.has(node.id)) {
-      node.status = 'completed';
-    } else if (!currentAssigned) {
+  const assign = (node) => {
+    if (done.has(node.id)) node.status = 'completed';
+    else if (!currentAssigned) {
       node.status = 'current';
       currentAssigned = true;
-    } else {
-      node.status = 'locked';
-    }
+    } else node.status = 'locked';
     return node;
   };
 
-  let quizCount = 0;
   let lessonCount = 0;
-
-  const modules = CURRICULUM.map((mod, mi) => {
+  const outModules = modules.map((mod, mi) => {
+    const modLessons = lessonsByModule.get(String(mod._id)) || [];
     const nodes = [];
 
-    mod.lessons.forEach((title, li) => {
+    modLessons.forEach((l) => {
       lessonCount += 1;
-      nodes.push(
-        assignStatus({ id: `${mod.code}-l${li + 1}`, type: 'lesson', title })
-      );
-
-      if (quizAfterLesson(li, mod.lessons.length, timeframe)) {
-        quizCount += 1;
-        nodes.push(
-          assignStatus({ id: `${mod.code}-q${li + 1}`, type: 'quiz', title: 'Mashq testi' })
-        );
-      }
+      nodes.push(assign({ id: String(l._id), type: 'lesson', title: l.title }));
     });
+    // Checkpoint per module (only if the module has lessons).
+    if (modLessons.length > 0) {
+      nodes.push(assign({ id: `cp-${mod._id}`, type: 'checkpoint', title: 'Nazorat testi' }));
+    }
 
-    // Module checkpoint exam — always present.
-    quizCount += 1;
-    nodes.push(assignStatus({ id: `${mod.code}-cp`, type: 'checkpoint', title: 'Nazorat testi' }));
-
-    const completed = nodes.every((n) => n.status === 'completed');
+    const completed = nodes.length > 0 && nodes.every((n) => n.status === 'completed');
     const hasCurrent = nodes.some((n) => n.status === 'current');
-
     return {
-      code: mod.code,
+      code: String(mod._id),
       title: mod.title,
       order: mi + 1,
       status: completed ? 'completed' : hasCurrent ? 'current' : 'locked',
@@ -76,19 +56,21 @@ export const buildRoadmapView = (user, roadmap, completedNodeIds = new Set()) =>
     };
   });
 
+  const allNodes = outModules.flatMap((m) => m.nodes);
   return {
-    modules,
-    target: user.targetLevel || 'A+',
-    timeframe,
-    totals: { modules: modules.length, lessons: lessonCount, quizzes: quizCount },
-    stats: {
-      currentLevel: user.currentLevel || user.targetLevel || 'C',
-      xp: user.xp,
-      streak: user.streakCount,
-      hearts: user.hearts,
-      maxHearts: user.maxHearts,
-      dailyXp: user.dailyXp,
-      dailyGoalXp: user.dailyGoalXp,
+    course: {
+      id: String(course._id),
+      title: course.title,
+      description: course.description,
+      emoji: course.emoji,
+      category: course.category,
+    },
+    modules: outModules,
+    totals: {
+      modules: outModules.length,
+      lessons: lessonCount,
+      nodes: allNodes.length,
+      completed: allNodes.filter((n) => n.status === 'completed').length,
     },
   };
 };

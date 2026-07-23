@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import User from '../models/User.js';
 import { signToken } from '../utils/jwt.js';
-import { env } from '../config/env.js';
+import { env, roleForEmail } from '../config/env.js';
 
 const googleClient = new OAuth2Client(env.googleClientId);
 
@@ -41,6 +41,7 @@ export const register = async (req, res) => {
     email: normalizedEmail,
     passwordHash,
     authProvider: 'local',
+    role: roleForEmail(normalizedEmail),
   });
 
   respondWithSession(res, user, 201);
@@ -68,6 +69,12 @@ export const login = async (req, res) => {
   if (!match) {
     res.status(401);
     throw new Error("Email yoki parol noto'g'ri");
+  }
+
+  // Promote to admin if the email was added to ADMIN_EMAILS after signup.
+  if (user.role !== 'admin' && roleForEmail(user.email) === 'admin') {
+    user.role = 'admin';
+    await user.save();
   }
 
   respondWithSession(res, user);
@@ -117,7 +124,11 @@ export const googleLogin = async (req, res) => {
       name: name || 'Foydalanuvchi',
       avatarUrl: picture || null,
       authProvider: 'google',
+      role: roleForEmail(normalizedEmail),
     });
+  } else if (user.role !== 'admin' && roleForEmail(user.email) === 'admin') {
+    user.role = 'admin';
+    await user.save();
   }
 
   respondWithSession(res, user);

@@ -1,41 +1,34 @@
 import User from '../models/User.js';
-import Roadmap from '../models/Roadmap.js';
-import { LEVELS, isValidLevel, levelIndex } from '../constants/levels.js';
+import OnboardingQuestion from '../models/OnboardingQuestion.js';
 
-const TIMEFRAMES = ['1_oy', '2_oy', '3_oy'];
+// GET /api/onboarding/test — the short placement test (answers stripped).
+export const getOnboardingTest = async (req, res) => {
+  const questions = await OnboardingQuestion.find().sort({ order: 1, createdAt: 1 }).lean();
+  res.json({
+    questions: questions.map((q) => ({ id: String(q._id), prompt: q.prompt, options: q.options })),
+  });
+};
 
+// POST /api/onboarding/complete — { answers?: {id:index}, skipped?: bool }
+// Scores the answers (if not skipped) and marks onboarding done.
 export const completeOnboarding = async (req, res) => {
-  const { targetLevel, timeframe } = req.body;
+  const { answers, skipped } = req.body;
 
-  if (!isValidLevel(targetLevel)) {
-    res.status(400);
-    throw new Error("Maqsadli daraja notoʻgʻri");
+  let score = null;
+  if (!skipped && answers && typeof answers === 'object') {
+    const questions = await OnboardingQuestion.find().lean();
+    let correct = 0;
+    for (const q of questions) {
+      if (Number(answers[String(q._id)]) === q.answer) correct += 1;
+    }
+    score = questions.length ? Math.round((correct / questions.length) * 100) : 0;
   }
-  if (!TIMEFRAMES.includes(timeframe)) {
-    res.status(400);
-    throw new Error("Tayyorgarlik muddati notoʻgʻri");
-  }
-
-  // Grades from the lowest up to the chosen target — kept for record/badges.
-  const levelPath = LEVELS.slice(0, levelIndex(targetLevel) + 1);
-
-  const roadmap = await Roadmap.findOneAndUpdate(
-    { user: req.user._id },
-    { user: req.user._id, levelPath, currentPosition: 0 },
-    { new: true, upsert: true }
-  );
 
   const user = await User.findByIdAndUpdate(
     req.user._id,
-    {
-      targetLevel,
-      timeframe,
-      currentLevel: targetLevel,
-      onboardingCompleted: true,
-      roadmap: roadmap._id,
-    },
+    { onboardingCompleted: true, placementScore: score, placementSkipped: Boolean(skipped) },
     { new: true }
   );
 
-  res.status(200).json({ user, roadmap });
+  res.json({ user, score, skipped: Boolean(skipped) });
 };
